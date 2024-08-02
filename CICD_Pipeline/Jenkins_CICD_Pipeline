@@ -1,0 +1,71 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'ur-region'
+        ECR_REPOSITORY = 'your-ecr-repo-name'
+        IMAGE_TAG = "${env.BUILD_ID}"
+        SONARQUBE_URL = 'your-sonarqube-server'
+        SONARQUBE_TOKEN = sonar-token-id
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git 'ur github repo'
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                sh 'npm install'
+            }
+        }
+
+        stage('Lint Code') {
+            steps {
+                sh 'npm run lint'
+            }
+        }
+        stage('Quality Check with SonarQube') {
+            steps {           
+                withSonarQubeEnv('SonarQube') { 
+                    sh "sonar-scanner projectkey sonarurl sonar-token"
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                 sh 'aws ecr login'
+                    
+                 sh "docker build -t ${ECR_REPOSITORY}:${IMAGE_TAG} ."
+                    
+                 sh "docker tag ${ECR_REPOSITORY}:${IMAGE_TAG} <aws_account_id>.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"             
+                 sh "docker push <aws_account_id>.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Deploy to ECS') {
+            steps {
+                script {
+                    sh """
+                    aws ecs update-service --cluster your-cluster-name --service your-service-name --force-new-deployment --region $AWS_REGION
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment successful!'
+        }
+        failure {
+            echo 'Deployment failed.'
+        }
+    }
+}
+
